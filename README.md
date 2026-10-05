@@ -1,145 +1,191 @@
-# TV Hub V6, Teacher Reference
+# Práctica Integradora 1 — TV Hub Watch Experience
 
-Proyecto de clase con Node.js, Express, TypeScript, MongoDB y Mongoose. Esta versión docente incluye las implementaciones completas de Watch y Channel Reports.
+Aplicación de clase construida con Node.js, Express, TypeScript, MongoDB, Mongoose y JavaScript. La práctica consiste en completar el flujo MVC para consultar un canal desde MongoDB y reproducir su stream en la página Watch mediante Shaka Player.
 
-TV Hub V6 agrega operaciones de soporte sobre Reports: correo con Nodemailer, escalación programada con node-cron, sincronización en tiempo real con Socket.IO, cierre administrativo y métricas de atención. Los usuarios ven sus propios Reports; el rol `ADMIN` usa `/support-reports.html` y `/support-metrics.html`. Consulte [la guía de operaciones de V6](docs/tv-hub-v6-operations.md).
+## Objetivo
 
-## Session 15: TODOs pendientes de V6
+Cuando el usuario selecciona un canal en Home, la aplicación debe:
 
-Esta rama conserva siete puntos de trabajo para Session 15. Los TODOs históricos de V4 y V4.5 no forman parte de esta lista.
+1. Abrir Watch con el identificador del canal.
+2. Solicitar `GET /api/channels/:id` desde el navegador.
+3. Encontrar el canal activo en MongoDB.
+4. Responder con su información en formato JSON.
+5. Mostrar su nombre, país y categorías.
+6. Cargar `streamUrl` en Shaka Player.
+7. Mostrar los estados Loading, Playing o Error.
 
-| TODO | Archivo | Actividad |
-| --- | --- | --- |
-| TODO V6 CRON 1 | `src/jobs/report-escalation.job.ts` | Escalar Reports `OPEN` vencidos, persistirlos y emitir su actualización. |
-| TODO V6 CRON 2 | `src/jobs/report-escalation.job.ts` | Programar el job periódico con `node-cron` y manejar sus errores. |
-| TODO V6 CRON 3 | `src/server.ts` | Iniciar el job después de conectar MongoDB. |
-| TODO V6 MAIL 1 | `src/notifications/report-email.ts` | Construir el email de creación de un Report. |
-| TODO V6 MAIL 2 | `src/notifications/report-email.ts` | Construir el email de resolución de un Report. |
-| TODO V6 MAIL 3 | `src/controllers/report.controller.ts` | Intentar el email de creación después de persistir, sin revertir el Report ante un fallo. |
-| TODO V6 MAIL 4 | `src/controllers/report.controller.ts` | Intentar el email de resolución después de persistir, sin revertir el cierre ante un fallo. |
+## Arquitectura
 
-## Práctica Integradora 1
+El recorrido principal es:
 
-- El registro, login, refresh y logout de V1 siguen funcionando.
-- `Channel` es un modelo de Mongoose alimentado por playlists M3U locales.
-- `GET /api/channels` devuelve los canales activos; acepta `search`, `category`, `country` y `sort=country` de forma opcional.
-- La página Home usa `fetch('/api/channels')` y muestra tarjetas con logo, nombre, país y categorías.
-- Home agrupa canales por país, muestra hasta cinco por país y permite filtrar por categoría.
-- Favorites permite buscar y ordenar canales guardados; Country muestra todos los canales de un país.
-- Watch obtiene un canal por HTTP y usa Shaka Player para intentar reproducción HLS y DASH.
-- Favorites está completo: permite crear, consultar y quitar favoritos, con estado visual sincronizado en Home y My Favorites.
-- Los ejercicios guiados están en `docs/session-10-student-checkpoints.md`.
-- Los ejercicios de Favorites están en `docs/session-12-student-checkpoints.md`.
-- Las playlists M3U locales se importan con `npm run import:channels` o `npm run import:all-channels`.
+```text
+Home
+  ↓
+watch.js (View)
+  ↓ GET /api/channels/:id
+channel.routes.ts (Route)
+  ↓
+channel.controller.ts (Controller)
+  ↓
+channel.model.ts (Model)
+  ↓
+MongoDB
+  ↓ JSON
+watch.js → Shaka Player → Stream
+```
 
-## Session 14: Channel Reports
+- **View:** muestra la información y solicita el canal mediante `fetch`.
+- **Route:** relaciona el método y la URL con el Controller correcto.
+- **Controller:** valida la petición, coordina la consulta y construye la respuesta.
+- **Model:** define el Channel y permite consultar MongoDB mediante Mongoose.
+- **MongoDB:** almacena los canales importados desde las playlists M3U.
 
-La actividad agrega un flujo de reportes para que una persona autenticada pueda enviar un problema de un canal, adjuntar hasta cinco evidencias de imagen, editar el reporte y eliminarlo junto con sus archivos locales. La arquitectura mantiene Route, Middleware, Controller, Model y View.
+## Requisitos
 
-## Requirements
+- Node.js 20 o superior.
+- Docker Desktop con Docker Compose.
+- Postman, navegador o DevTools para probar la API.
 
-- Node.js 20 o superior
-- Docker y Docker Compose
+## Preparar el proyecto
 
-## Installation and environment
+Instala las dependencias:
 
 ```bash
 npm install
-docker compose up -d
-npm run build
-npm run import:all-channels
-npm run dev
 ```
 
-La aplicación queda disponible en `http://localhost:3000`.
+Inicia MongoDB. Si el contenedor ya existe pero está detenido:
 
-## Cargar canales desde las playlists
+```bash
+docker compose start
+```
 
-Para cargar todos los canales de los archivos con sufijo `_playlist.m3u` dentro de `docs/`, ejecute:
+Para crearlo o iniciarlo mediante la configuración del proyecto:
 
 ```bash
 docker compose up -d
+```
+
+Compila el proyecto e importa todas las playlists locales:
+
+```bash
 npm run build
 npm run import:all-channels
 ```
 
-El script encuentra las playlists locales, elimina los documentos existentes de `channels` y `favorites`, e inserta los canales importados. Conserva las colecciones de usuarios y sesiones.
+Finalmente, inicia la aplicación:
 
-Para importar o actualizar solamente una playlist, indique el archivo y el país:
+```bash
+npm run dev
+```
+
+La aplicación estará disponible en `http://localhost:3000`.
+
+## Importar canales
+
+Para cargar todas las playlists con sufijo `_playlist.m3u` de `docs/`:
+
+```bash
+npm run build
+npm run import:all-channels
+```
+
+Para importar o actualizar una sola playlist:
 
 ```bash
 npm run import:channels -- docs/japon_playlist.m3u Japan
 ```
 
-La importación individual usa país más `tvgId` o, si falta, país más `streamUrl`, por lo que se puede ejecutar otra vez sin crear duplicados.
+La importación completa reemplaza los canales y favoritos existentes. Los usuarios y las sesiones se conservan.
 
-Las ramas históricas `tv-hub-v5-final` y `tv-hub-v5-base` corresponden al material de V5. Este workspace contiene la referencia docente actual de TV Hub V6.
+## Archivos principales
 
-Un clon nuevo usa `.env.example` automáticamente en desarrollo, por lo que no requiere crear un `.env` para empezar la clase. Si se necesita personalizar la configuración local, crear el archivo ignorado por Git:
-
-```bash
-cp .env.example .env
+```text
+src/routes/channel.routes.ts
+src/controllers/channel.controller.ts
+src/models/channel.model.ts
+src/public/watch.html
+src/public/js/watch.js
+tests/channels.test.ts
 ```
 
-Las variables requeridas están documentadas en `.env.example`: `PORT`, `NODE_ENV`, `MONGO_URI`, secretos JWT y los TTL de ambos tokens. En producción se debe proporcionar un `.env` seguro o variables de entorno equivalentes; los secretos de ejemplo no son válidos para producción.
+## API de canales
 
-## Commands
+| Método | Endpoint | Resultado |
+| --- | --- | --- |
+| GET | `/api/channels` | Devuelve los canales activos. |
+| GET | `/api/channels/:id` | Devuelve un canal activo por su identificador. |
+
+Ejemplo de respuesta:
+
+```json
+{
+  "channel": {
+    "_id": "ID_DEL_CANAL",
+    "name": "Canal de ejemplo",
+    "logoUrl": "https://example.com/logo.png",
+    "streamUrl": "https://example.com/stream.m3u8",
+    "country": "Mexico",
+    "categories": ["News"],
+    "isActive": true
+  }
+}
+```
+
+## Pasos de la actividad
+
+1. Conectar `GET /api/channels/:id` con `getChannel`.
+2. Consultar un canal activo mediante el Channel Model.
+3. Responder con `404` cuando el canal no exista.
+4. Enviar el canal al frontend como JSON.
+5. Solicitar el canal desde `watch.js` mediante `fetch`.
+6. Mostrar nombre, país y categorías en Watch.
+7. Conectar Shaka Player con el elemento `<video>` y cargar `streamUrl`.
+8. Mostrar correctamente los estados Loading, Playing y Error.
+
+## Pruebas
+
+Comprueba la API en Postman o el navegador usando un identificador real:
+
+```http
+GET http://localhost:3000/api/channels/ID_REAL_DEL_CANAL
+```
+
+La respuesta esperada es `200 OK` con un objeto `channel`.
+
+Ejecuta las pruebas específicas de la práctica:
 
 ```bash
-npm run dev
+npm test -- --runInBand tests/channels.test.ts
+```
+
+Comprueba también que TypeScript compile correctamente:
+
+```bash
 npm run build
-npm start
-npm test
-npm run test:watch
-npm run import:channels -- docs/argentina_playlist.m3u Argentina
-npm run import:all-channels
-docker compose config
-docker compose up -d
 ```
 
-## Architecture
+## Validación final
 
-El flujo usa Route, Controller, Mongoose Model y MongoDB. Para canales intervienen `channel.routes.ts`, `channel.controller.ts`, `channel.model.ts`, MongoDB, JSON y `src/public/js/home.js`. Las rutas aplican middleware cuando hace falta; los controladores validan y coordinan; los modelos definen persistencia. El frontend es HTML, CSS y JavaScript vanilla con `fetch` nativo.
+- Home muestra los canales importados.
+- Seleccionar un canal abre Watch con su identificador.
+- La petición `GET /api/channels/:id` responde con `200`.
+- Watch presenta el nombre, país y categorías correctos.
+- Un stream disponible cambia la interfaz de Loading a Playing.
+- Un stream no disponible muestra Error y el botón Try again.
 
-Para favoritos intervienen `home.js`, `favorite.routes.ts`, `authenticate`, `favorite.controller.ts`, `favorite.model.ts` y MongoDB. Un índice único en `userId` y `channelId` evita que un usuario guarde el mismo canal dos veces.
+La reproducción depende de que el stream remoto siga disponible y permita acceso desde el navegador.
 
-Para Reports intervienen `reports.js`, `report.routes.ts`, `authenticate`, Multer, `report.controller.ts`, `report.model.ts`, MongoDB y `uploads/reports`. El POST acepta hasta cinco imágenes. PATCH solo modifica `reason`, `description` y `status`; DELETE elimina el Report propio y procura borrar sus evidencias locales. Los estados disponibles son `OPEN`, `IN_PROGRESS` y `RESOLVED`.
+## Evidencias para la entrega
 
-## API
+El PDF debe incluir:
 
-| Method | Endpoint               | Description                    |
-| ------ | ---------------------- | ------------------------------ |
-| GET    | `/health`              | Express health check           |
-| GET    | `/ready`               | MongoDB readiness check        |
-| POST   | `/api/auth/register`   | Creates a USER and signs in    |
-| POST   | `/api/auth/login`      | Signs in and creates a session |
-| POST   | `/api/auth/refresh`    | Rotates refresh token          |
-| POST   | `/api/auth/logout`     | Revokes current session        |
-| POST   | `/api/auth/logout-all` | Revokes all user sessions      |
-| GET    | `/api/users/me`        | Current authenticated user     |
-| GET    | `/api/admin/demo`      | ADMIN-only demonstration       |
-| GET    | `/api/channels`        | Active channels from MongoDB   |
-| GET    | `/api/channels/:id`    | One active channel for Watch   |
-| GET    | `/api/favorites`       | Current user's favorite channels |
-| POST   | `/api/favorites/:channelId` | Adds an active channel to the current user's favorites |
-| DELETE | `/api/favorites/:channelId` | Removes a channel from the current user's favorites |
-| GET | `/api/reports` | Current user's reports, newest first |
-| POST | `/api/reports` | Creates a report with up to five optional image evidences |
-| PATCH | `/api/reports/:id` | Updates reason, description and status of the current user's report |
-| DELETE | `/api/reports/:id` | Deletes the current user's report and its local evidence files |
+1. URL del repositorio público.
+2. Captura de la Route y evidencia de que funciona.
+3. Captura de la consulta del Controller y de la respuesta JSON.
+4. Captura del `fetch` y de Watch mostrando el canal.
+5. Captura de Shaka Player y del stream reproduciéndose.
+6. Evidencia de al menos dos estados del reproductor, de preferencia Playing y Error.
+7. Una conclusión breve sobre la responsabilidad de View, Route, Controller, Model y MongoDB.
 
-Las rutas de favoritos están completas en esta versión de referencia. Consulte `docs/session-12-student-checkpoints.md` para la secuencia didáctica de la funcionalidad.
-
-Access and refresh tokens are sent as HttpOnly cookies. MongoDB only stores a SHA-256 hash of the refresh token (bcrypt is used for passwords; it truncates long JWT values). Refreshing replaces that hash, so the previous refresh token cannot be reused.
-
-## Importación M3U local
-
-Los archivos M3U se procesan únicamente en backend; el navegador nunca los lee:
-
-```bash
-npm run build
-npm run import:channels -- docs/argentina_playlist.m3u Argentina
-npm run import:all-channels
-```
-
-El importador individual lee metadatos de la playlist y actualiza por país más tvg-id o stream URL. La importación completa limpia Channels y Favorites antes de cargar todas las playlists de docs. La reproducción depende de que el stream remoto permita CORS y acceso directo desde navegador.
+No entregues únicamente capturas del código: incluye también evidencia del resultado que produce cada modificación.
