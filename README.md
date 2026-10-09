@@ -1,52 +1,45 @@
-# Práctica Integradora 1 — TV Hub Watch Experience
+# TV Hub V6 — Sesión 15
 
-Aplicación de clase construida con Node.js, Express, TypeScript, MongoDB, Mongoose y JavaScript. La práctica consiste en completar el flujo MVC para consultar un canal desde MongoDB y reproducir su stream en la página Watch mediante Shaka Player.
+Aplicación construida con Node.js, Express, TypeScript, MongoDB y Mongoose. Esta práctica agrega operaciones en tiempo real con Socket.IO, escalamiento automático con `node-cron` y notificaciones por correo con Nodemailer.
 
 ## Objetivo
 
-Cuando el usuario selecciona un canal en Home, la aplicación debe:
+Completar el ciclo de vida de los Reports:
 
-1. Abrir Watch con el identificador del canal.
-2. Solicitar `GET /api/channels/:id` desde el navegador.
-3. Encontrar el canal activo en MongoDB.
-4. Responder con su información en formato JSON.
-5. Mostrar su nombre, país y categorías.
-6. Cargar `streamUrl` en Shaka Player.
-7. Mostrar los estados Loading, Playing o Error.
+1. Mostrar Reports nuevos y actualizados sin refrescar la página.
+2. Escalar automáticamente los Reports `OPEN` antiguos.
+3. Enviar un correo cuando un Report se crea.
+4. Enviar un correo al usuario cuando soporte resuelve su Report.
+
+La regla principal es guardar primero en MongoDB y notificar después. Si Socket.IO, cron o el correo fallan, la información principal no debe perderse.
 
 ## Arquitectura
 
-El recorrido principal es:
-
 ```text
-Home
-  ↓
-watch.js (View)
-  ↓ GET /api/channels/:id
-channel.routes.ts (Route)
-  ↓
-channel.controller.ts (Controller)
-  ↓
-channel.model.ts (Model)
-  ↓
-MongoDB
-  ↓ JSON
-watch.js → Shaka Player → Stream
+Navegador
+   ↓ HTTP
+Routes → Controllers → Models → MongoDB
+              ↓
+              ├─ Socket.IO → usuario y administradores
+              └─ Nodemailer → correo externo
+
+node-cron → busca Reports antiguos → MongoDB → Socket.IO
 ```
 
-- **View:** muestra la información y solicita el canal mediante `fetch`.
-- **Route:** relaciona el método y la URL con el Controller correcto.
-- **Controller:** valida la petición, coordina la consulta y construye la respuesta.
-- **Model:** define el Channel y permite consultar MongoDB mediante Mongoose.
-- **MongoDB:** almacena los canales importados desde las playlists M3U.
+- **Routes:** conectan cada endpoint con su Controller.
+- **Controllers:** validan y coordinan las operaciones.
+- **Models:** representan los datos guardados en MongoDB.
+- **Socket.IO:** avisa cambios en tiempo real.
+- **node-cron:** ejecuta periódicamente el escalamiento.
+- **Nodemailer:** construye y envía las notificaciones por correo.
 
 ## Requisitos
 
 - Node.js 20 o superior.
 - Docker Desktop con Docker Compose.
-- Postman, navegador o DevTools para probar la API.
+- Navegador web.
 
-## Preparar el proyecto
+## Instalación y ejecución
 
 Instala las dependencias:
 
@@ -54,138 +47,132 @@ Instala las dependencias:
 npm install
 ```
 
-Inicia MongoDB. Si el contenedor ya existe pero está detenido:
-
-```bash
-docker compose start
-```
-
-Para crearlo o iniciarlo mediante la configuración del proyecto:
+Inicia MongoDB:
 
 ```bash
 docker compose up -d
 ```
 
-Compila el proyecto e importa todas las playlists locales:
+Comprueba el contenedor:
 
 ```bash
-npm run build
-npm run import:all-channels
+docker compose ps
 ```
 
-Finalmente, inicia la aplicación:
+Inicia la aplicación:
 
 ```bash
 npm run dev
 ```
 
-La aplicación estará disponible en `http://localhost:3000`.
+Abre `http://localhost:3000`.
 
-## Importar canales
-
-Para cargar todas las playlists con sufijo `_playlist.m3u` de `docs/`:
+El proyecto usa `.env.example` automáticamente cuando no existe `.env`. Para personalizar la configuración:
 
 ```bash
-npm run build
-npm run import:all-channels
+copy .env.example .env
 ```
 
-Para importar o actualizar una sola playlist:
+No subas `.env` ni credenciales reales al repositorio.
 
-```bash
-npm run import:channels -- docs/japon_playlist.m3u Japan
+## Socket.IO
+
+Socket.IO comparte el mismo servidor HTTP de Express. Cada conexión autenticada entra al room de su usuario. Los usuarios con rol `ADMIN` también entran al room `admins`.
+
+Eventos utilizados:
+
+- `report:created`: avisa que se creó un Report.
+- `report:updated`: avisa que un Report cambió.
+
+El usuario propietario y el panel de soporte reciben las actualizaciones sin refrescar la página.
+
+## Escalamiento con node-cron
+
+El job se ejecuta con la expresión configurada en `REPORT_ESCALATION_CRON`. En desarrollo se ejecuta cada minuto:
+
+```env
+REPORT_ESCALATION_MINUTES=2
+REPORT_ESCALATION_CRON=*/1 * * * *
 ```
 
-La importación completa reemplaza los canales y favoritos existentes. Los usuarios y las sesiones se conservan.
+Un Report cambia de `OPEN` a `ESCALATED` cuando su fecha de creación es anterior o igual al límite calculado. El cambio se guarda en MongoDB antes de emitir `report:updated`.
+
+## Correos con Nodemailer
+
+Se generan dos notificaciones:
+
+- **Report creado:** se envía a `REPORT_NOTIFICATION_EMAIL` e incluye canal, razón, descripción, estado y fecha.
+- **Report resuelto:** se envía al correo del usuario e incluye canal, razón, descripción y estado final.
+
+El envío ocurre después de guardar el Report. Cada llamada está protegida con un `try/catch` local, por lo que un error de correo no revierte la operación principal.
+
+Si `SMTP_HOST` está vacío en desarrollo, se utiliza una cuenta de prueba de Ethereal. La terminal muestra una URL como esta:
+
+```text
+Email preview: https://ethereal.email/message/...
+```
+
+Para utilizar un servidor SMTP real, configura las variables sin guardar secretos en Git:
+
+```env
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=usuario
+SMTP_PASS=contraseña
+SMTP_FROM=TV Hub <no-reply@example.com>
+```
 
 ## Archivos principales
 
 ```text
-src/routes/channel.routes.ts
-src/controllers/channel.controller.ts
-src/models/channel.model.ts
-src/public/watch.html
-src/public/js/watch.js
-tests/channels.test.ts
+src/server.ts
+src/realtime/socket.ts
+src/jobs/report-escalation.job.ts
+src/notifications/report-email.ts
+src/controllers/report.controller.ts
+src/models/report.model.ts
+src/public/js/reports.js
+src/public/js/support-reports.js
 ```
-
-## API de canales
-
-| Método | Endpoint | Resultado |
-| --- | --- | --- |
-| GET | `/api/channels` | Devuelve los canales activos. |
-| GET | `/api/channels/:id` | Devuelve un canal activo por su identificador. |
-
-Ejemplo de respuesta:
-
-```json
-{
-  "channel": {
-    "_id": "ID_DEL_CANAL",
-    "name": "Canal de ejemplo",
-    "logoUrl": "https://example.com/logo.png",
-    "streamUrl": "https://example.com/stream.m3u8",
-    "country": "Mexico",
-    "categories": ["News"],
-    "isActive": true
-  }
-}
-```
-
-## Pasos de la actividad
-
-1. Conectar `GET /api/channels/:id` con `getChannel`.
-2. Consultar un canal activo mediante el Channel Model.
-3. Responder con `404` cuando el canal no exista.
-4. Enviar el canal al frontend como JSON.
-5. Solicitar el canal desde `watch.js` mediante `fetch`.
-6. Mostrar nombre, país y categorías en Watch.
-7. Conectar Shaka Player con el elemento `<video>` y cargar `streamUrl`.
-8. Mostrar correctamente los estados Loading, Playing y Error.
 
 ## Pruebas
 
-Comprueba la API en Postman o el navegador usando un identificador real:
-
-```http
-GET http://localhost:3000/api/channels/ID_REAL_DEL_CANAL
-```
-
-La respuesta esperada es `200 OK` con un objeto `channel`.
-
-Ejecuta las pruebas específicas de la práctica:
-
-```bash
-npm test -- --runInBand tests/channels.test.ts
-```
-
-Comprueba también que TypeScript compile correctamente:
+Compila TypeScript:
 
 ```bash
 npm run build
 ```
 
-## Validación final
+Ejecuta todas las pruebas:
 
-- Home muestra los canales importados.
-- Seleccionar un canal abre Watch con su identificador.
-- La petición `GET /api/channels/:id` responde con `200`.
-- Watch presenta el nombre, país y categorías correctos.
-- Un stream disponible cambia la interfaz de Loading a Playing.
-- Un stream no disponible muestra Error y el botón Try again.
+```bash
+npm test
+```
 
-La reproducción depende de que el stream remoto siga disponible y permita acceso desde el navegador.
+Pruebas principales de esta práctica:
 
-## Evidencias para la entrega
+```bash
+npm test -- --runInBand tests/reports.test.ts
+npm test -- --runInBand tests/report-escalation.test.ts
+```
 
-El PDF debe incluir:
+## Validación manual
 
-1. URL del repositorio público.
-2. Captura de la Route y evidencia de que funciona.
-3. Captura de la consulta del Controller y de la respuesta JSON.
-4. Captura del `fetch` y de Watch mostrando el canal.
-5. Captura de Shaka Player y del stream reproduciéndose.
-6. Evidencia de al menos dos estados del reproductor, de preferencia Playing y Error.
-7. Una conclusión breve sobre la responsabilidad de View, Route, Controller, Model y MongoDB.
+1. Abre `/reports.html` con un usuario normal.
+2. Abre `/support-reports.html` con un administrador en otra sesión.
+3. Crea un Report y comprueba que aparece en ambas ventanas sin refrescar.
+4. Espera entre 2 y 3 minutos y verifica el cambio automático de `OPEN` a `ESCALATED`.
+5. Resuelve el Report desde soporte y abre el preview de Ethereal.
+6. Verifica que los correos de creación y resolución contienen los datos correctos.
 
-No entregues únicamente capturas del código: incluye también evidencia del resultado que produce cada modificación.
+## Evidencias de entrega
+
+El PDF final debe contener:
+
+1. Explicación y código principal de Socket.IO.
+2. Dos navegadores mostrando una actualización sin refresh.
+3. Explicación y código principal de `node-cron`.
+4. El mismo Report primero `OPEN` y después `ESCALATED`.
+5. Código de Nodemailer y su integración en el Controller.
+6. Previews de Ethereal para creación y resolución.
+7. URL del repositorio y commit final correspondiente a las evidencias.
