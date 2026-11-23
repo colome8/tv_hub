@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: tv-hub
+    runtime: node
+    plan: free
+    branch: main
+    autoDeployTrigger: 'off'
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ACCESS_TOKEN_TTL
+        value: 15m
+      - key: REFRESH_TOKEN_TTL
+        value: 7d
+      - key: REPORT_ESCALATION_MINUTES
+        value: '240'
+      - key: REPORT_ESCALATION_CRON
+        value: '*/15 * * * *'
